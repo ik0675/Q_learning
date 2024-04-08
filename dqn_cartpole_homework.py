@@ -22,9 +22,9 @@ TAU = 0.005         # Update rate of the duplicate network
 LR = 1e-4           # Learning rate of your Q - network
 
 # The probability of choosing a random action will start at EPS_START and will decay exponentially towards EPS_END. EPS_DECAY controls the rate of the decay.
-PROB_EPS_START = 0.9  # EPS_START is the starting value of epsilon
-PROB_EPS_END = 0.05  # EPS_END is the final value of epsilon
-RATE_EPS_DECAY = 1000 # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
+PROB_EPS_START = 0.9    # EPS_START is the starting value of epsilon
+PROB_EPS_END = 0.05     # EPS_END is the final value of epsilon
+RATE_EPS_DECAY = 1000   # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
 
 # Get number of actions from gym action space
 n_actions = env.action_space.n
@@ -54,12 +54,12 @@ class DQN(nn.Module):
 
     def __init__(self, n_observations, n_actions):
         super(DQN, self).__init__()
-        # 4 X 2 (input 4, output 2)
         #TODO : Define the layer of your Q network here. Think about the shapes when you define it.
         #What is the shape of the input? What should be the shape of the output?
+        # 4 X 2 (input 4, output 2)
         self.first_layer = nn.Linear(n_observations, BATCH_SIZE)
         self.second_layer = nn.Linear(BATCH_SIZE, BATCH_SIZE)
-        self.final_layer = nn.Linear(BATCH_SIZE, n_actions)
+        self.output = nn.Linear(BATCH_SIZE, n_actions)
 
     def forward(self, x):
         #TODO : Define how the network should process your input to produce an output
@@ -67,7 +67,7 @@ class DQN(nn.Module):
         x = F.relu(self.first_layer(x))
         x = F.relu(self.second_layer(x))
         
-        return self.final_layer(x)
+        return self.output(x)
     
 #Creating to instances of the Q-network.
 #Policy net is trained online directly by loss function
@@ -79,22 +79,29 @@ target_net.load_state_dict(policy_net.state_dict())
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
 memory = ReplayMemory(10000)
 
-steps_taken = 0
+steps_done = 0
 
 def select_action(state):
     #TODO : Implement an epsilon-greedy policy that
     #Picks an random action with a small posibility
     #and acts according to the Q values otherwise
+    global steps_done
+    random_sample = random.random()
+    eps_threshold = PROB_EPS_END + (PROB_EPS_START - PROB_EPS_END) * math.exp(-1.0 * steps_done / RATE_EPS_DECAY)
+    # eps_threshold = PROB_EPS_END + (PROB_EPS_START - PROB_EPS_END) * \
+    #     math.exp(-1. * steps_done / RATE_EPS_DECAY)
     
+    steps_done += 1
     
-    if True:
-        global steps_taken
+    if random_sample > eps_threshold:
+        with torch.no_grad():
+            return policy_net(state).max(1).indices.view(1, 1)
     else:
         return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
 
 
 episode_durations = []
-steps_done = 0
+
 
 
 def optimize_model():
@@ -121,15 +128,16 @@ def optimize_model():
     with torch.no_grad():
         #TODO : Calcualte the observed the Q value (Q_observed = immediate reward + gamma * max(Q(s_t+1)))
         #HINT : Use the target net for estimation of the next state
-        next_state_vales[non_final_mask] = target_net(non_final_next_states).max(1).values
-    expected_q_values = (next_state_vales * GAMMA) + reward_batch
+        # next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach
+        # next_state_v÷ales[non_final_mask] = target_net(non_final_next_states).max(1).values
+        next_state_vales[non_final_mask] = target_net(non_final_next_states).max(1)[0]
+    expected_state_action_values = (next_state_vales * GAMMA) + reward_batch
 
     #TODO : Pick an appropiate loss function and calculate the loss
     #TODO : Name your calculated loss "loss"
-    l1_loss = nn.SmoothL1Loss()
-    loss = l1_loss(state_action_values, expected_q_values.unsqueeze(1))
-    
-    print("here")
+    # Compute Huber loss
+    criterion = nn.SmoothL1Loss()
+    loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 
     optimizer.zero_grad()
     loss.backward()
@@ -140,7 +148,7 @@ def optimize_model():
 if torch.cuda.is_available():
     num_episodes = 500
 else:
-    num_episodes = 50
+    num_episodes = 200
 
 for i_episode in range(num_episodes):
     # Initialize the environment and get it's state
